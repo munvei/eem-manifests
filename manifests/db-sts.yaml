@@ -1,0 +1,60 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mariadb
+spec:
+  serviceName: mariadb
+  replicas: 2
+  selector:
+    matchLabels:
+      app: mariadb
+  updateStrategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      creationTimestamp: null
+      labels:
+        app: mariadb
+    spec:
+      initContainers: 
+        - name: init-mariadb
+          image: mariadb
+          command: ["bash", "/mnt/scripts/setup.sh"]
+          volumeMounts:
+            - name: confd
+              mountPath: /mnt/conf.d
+            - name: scripts
+              mountPath: /mnt/scripts
+      containers:
+        - name: mariadb
+          image: mariadb
+          envFrom:
+            - configMapRef:
+                name: common-env
+            - secretRef:
+                name: common-env
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/mysql
+            - name: confd
+              mountPath: /etc/mysql/conf.d
+            - name: backup
+              mountPath: /mnt/backup
+      volumes:
+        - name: confd
+          emptyDir: {}
+        - name: scripts
+          configMap:
+            name: mariadb-scripts
+        - name: backup
+          persistentVolumeClaim:
+            claimName: backup-db
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: 
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
