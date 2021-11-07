@@ -21,4 +21,42 @@ data:
       echo "server-id=$((100+serverid))" >> ${CONF}
     fi
 
+    # Copy init-slave.sh from scripts to initdb directory
+    cp /mnt/scripts/init-slave.sh /mnt/initdb/
+    chmod +x /mnt/initdb/init-slave.sh
+
     exit 0
+
+  init-slave.sh: |
+    #!/bin/bash
+
+    set -e
+    echo "Execute init-slave.sh"
+    [[ $(hostname) =~ -([0-9]+)$ ]]
+    serverid=${BASH_REMATCH[1]}
+    MYSQLS="mysql --user=root --password=${MARIADB_ROOT_PASSWORD}" 
+    MYSQLM="${MYSQLS} -h mariadb-0.mariadb"
+    MYSQLDUMP="mysqldump -h mariadb-0.mariadb --user=root --password=${MARIADB_ROOT_PASSWORD}"
+    
+    if [[ ${serverid} -ne 0 ]]; then
+      $MYSQLM -e 'FLUSH TABLES WITH READ LOCK;'
+      log_file=$(${MYSQLM} -e 'SHOW MASTER STATUS\G;' | grep File: | awk '{print $2}')
+      pos=$(${MYSQLM} -e 'SHOW MASTER STATUS\G;' | grep Position: | awk '{print $2}')
+      datestamp=$(date +%Y%m%d)
+      backupname="/mnt/backup/${MARIADB_DATABASE}-${datestamp}-${log_file}-${pos}.dump"
+
+      if [[ ! -e "${backupname}" ]]; then
+        ${MYSQLDUMP} "${MARIADB_DATABASE}" > "${backupname}"
+      fi
+
+      $MYSQLM -e 'UNLOCK TABLES;'
+
+      $MYSQLS "${MARIADB_DATABASE}" < "${backupname}"
+      $MYSQLS -e 'STOP SLAVE;'
+      $MYSQLS -e 'RESET SLAVE;'
+      $MYSQLS -e "CHANGE MASTER TO MASTER_HOST='mariadb-0.mariadb', MASTER_USER='root', MASTER_PASSWORD=\"${MARIADB_ROOT_PASSWORD}\", MASTER_LOG_FILE='${log_file}', MASTER_LOG_POS=${pos};"
+      $MYSQLS -e "CHANGE REPLICATION FILTER REPLICATE_DO_DB=(${MARIADB_DATABASE});"
+      $MYSQLS -e 'START SLAVE;'
+    fi
+    exit 0
+
