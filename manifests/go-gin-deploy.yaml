@@ -18,7 +18,7 @@ spec:
         app: go-gin
     spec:
       containers:
-        - image: yoichi00/containers:go-gin36
+        - image: yoichi00/containers:go-gin52
           name: go-gin
           envFrom:
             - configMapRef:
